@@ -1,0 +1,76 @@
+# OS-specific
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build directories
+bin/
+bin-int/
+
+# IDE-specific
+*.vcxproj*
+*.suo
+*.user
+*.userosscache
+*.opensdf
+*.VC.db
+.vscode/
+
+# Premake-generated files
+*.make
+*.workspace
+*.project
+*.settings
+
+# Backup and temporary files
+*.bak
+*.tmp
+*.temp
+
+# Logs
+*.log
+
+# Dependencies
+vendor/**/bin/
+vendor/**/obj/
+vendor/**/lib/
+
+# Generated files
+*.exe
+*.dll
+*.lib
+*.pdb
+*.ilk
+
+# CMake
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Other
+.idea/
+*.ipch
+*.obj
+*.pch
+*.idb
+*.tlog
+*.lastbuildstate
+*.sdf
+*.aps
+*.ncb
+*.res
+*.iobj
+*.ipdb
+
+# Mono/.NET
+*.csproj.user
+*.csprojAssemblyReference.cache
+
+# Specific to Vulkan SDK
+VulkanSDK/
+
+# Custom exclusions (add any specific files or folders here)
+LinkVue-Host/Debug/
+LinkVue-Client/Debug/
+LinkVue/Debug/
