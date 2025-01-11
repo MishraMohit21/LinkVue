@@ -6,6 +6,7 @@ desktop.ini
 # Build directories
 bin/
 bin-int/
+.vs/
 
 # IDE-specific
 *.vcxproj*
@@ -74,3 +75,5 @@ VulkanSDK/
 LinkVue-Host/Debug/
 LinkVue-Client/Debug/
 LinkVue/Debug/
+.vs/LinkVue/FileContentIndex
+.vs/LinkVue/v17

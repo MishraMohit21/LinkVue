@@ -6,6 +6,68 @@
 #include <vector>
 #include <array>
 #include <iostream>
+#include <stack>
+
+
+void SetDarkThemeColors()
+{
+    auto& colors = ImGui::GetStyle().Colors;
+
+    // --- Dark Mode ---
+
+    // Base: Deep space black with a hint of blue for depth
+    colors[ImGuiCol_WindowBg] = ImVec4{ 0.03f, 0.03f, 0.04f, 1.0f };
+
+    // Headers: Subtle blue undertone for a futuristic feel
+    colors[ImGuiCol_Header] = ImVec4{ 0.08f, 0.08f, 0.1f, 1.0f };
+    colors[ImGuiCol_HeaderHovered] = ImVec4{ 0.12f, 0.12f, 0.15f, 1.0f };
+    colors[ImGuiCol_HeaderActive] = ImVec4{ 0.05f, 0.05f, 0.07f, 1.0f };
+
+    // Buttons: Introducing a vibrant blue accent
+    colors[ImGuiCol_Button] = ImVec4{ 0.1f, 0.1f, 0.12f, 1.0f };
+    colors[ImGuiCol_ButtonHovered] = ImVec4{ 0.0f, 0.2f, 0.4f, 1.0f }; // Electric blue
+    colors[ImGuiCol_ButtonActive] = ImVec4{ 0.0f, 0.15f, 0.3f, 1.0f }; // Deeper blue
+
+    // Frame BG: Blends with the background
+    colors[ImGuiCol_FrameBg] = ImVec4{ 0.08f, 0.08f, 0.1f, 1.0f };
+    colors[ImGuiCol_FrameBgHovered] = ImVec4{ 0.15f, 0.15f, 0.2f, 1.0f };
+    colors[ImGuiCol_FrameBgActive] = ImVec4{ 0.05f, 0.05f, 0.07f, 1.0f };
+
+    // Tabs:  Using a contrasting purple accent
+    colors[ImGuiCol_Tab] = ImVec4{ 0.07f, 0.07f, 0.09f, 1.0f };
+    colors[ImGuiCol_TabHovered] = ImVec4{ 0.3f, 0.1f, 0.4f, 1.0f }; // Vivid purple
+    colors[ImGuiCol_TabActive] = ImVec4{ 0.2f, 0.05f, 0.3f, 1.0f }; // Deeper purple
+    colors[ImGuiCol_TabUnfocused] = ImVec4{ 0.04f, 0.04f, 0.05f, 1.0f };
+    colors[ImGuiCol_TabUnfocusedActive] = ImVec4{ 0.08f, 0.08f, 0.1f, 1.0f };
+
+    colors[ImGuiCol_Separator] = colors[ImGuiCol_Border];
+    colors[ImGuiCol_SeparatorHovered] = ImVec4(0.10f, 0.40f, 0.75f, 0.78f);
+    colors[ImGuiCol_SeparatorActive] = ImVec4(0.10f, 0.40f, 0.75f, 1.00f);
+
+    // Title: Subtle and unobtrusive
+    colors[ImGuiCol_TitleBg] = ImVec4{ 0.07f, 0.07f, 0.09f, 1.0f };
+    colors[ImGuiCol_TitleBgActive] = ImVec4{ 0.07f, 0.07f, 0.09f, 1.0f };
+    colors[ImGuiCol_TitleBgCollapsed] = ImVec4{ 0.04f, 0.04f, 0.05f, 1.0f };
+
+    // --- Accent Colors ---
+    colors[ImGuiCol_Text] = ImVec4{ 0.8f, 0.8f, 0.82f, 1.0f }; // Slightly off-white for readability
+    colors[ImGuiCol_CheckMark] = ImVec4{ 0.0f, 0.6f, 1.0f, 1.0f }; // Bright cyan for checkmarks
+    colors[ImGuiCol_SliderGrab] = ImVec4{ 0.0f, 0.4f, 0.8f, 1.0f }; // Blue slider grab
+    colors[ImGuiCol_SliderGrabActive] = ImVec4{ 0.0f, 0.3f, 0.7f, 1.0f }; // Slightly darker when active
+
+    // Assuming your menu bar uses these ImGui elements:
+    colors[ImGuiCol_MenuBarBg] = ImVec4{ 0.13f, 0.13f, 0.14f, 1.0f }; // Match the main window background
+    //colors[/*ImGuiCol_MenuBarItem*/] = ImVec4{ 0.8f, 0.8f, 0.82f, 1.0f }; // Slightly off-white for menu items
+
+    // If you have a border around your menu bar:
+    colors[ImGuiCol_Border] = ImVec4{ 0.1f, 0.1f, 0.12f, 1.0f }; // Subtle blue tint
+
+
+
+   
+
+
+}
 
 struct Point {
     float x, y;
@@ -20,6 +82,8 @@ struct Stroke {
 class Whiteboard {
 private:
     std::vector<Stroke> strokes;
+    std::stack<std::vector<Stroke>> UndoStack;
+    std::stack<std::vector<Stroke>> redoStack;
     std::array<float, 3> currentColor = { 0.0f, 0.0f, 0.0f };    // Drawing color
     std::array<float, 3> canvasColor = { 1.0f, 1.0f, 1.0f };     // Canvas background color
     float currentThickness = 2.0f;
@@ -29,6 +93,15 @@ private:
     ImVec2 offset = ImVec2(0.0f, 0.0f);      // Canvas offset for panning
     ImVec2 lastMousePos = ImVec2(0.0f, 0.0f); // Last mouse position for panning
     float zoom = 1.0f;                        // Zoom level
+
+    // Save current state before making changes
+    void saveState() {
+        UndoStack.push(strokes);
+        // Clear redo stack when new action is performed
+        while (!redoStack.empty()) {
+            redoStack.pop();
+        }
+    }
 
     ImVec2 screenToCanvas(const ImVec2& screenPos, const ImVec2& windowPos) {
         return ImVec2(
@@ -45,6 +118,22 @@ private:
     }
 
 public:
+    void Undo() {
+        if (!UndoStack.empty()) {
+            redoStack.push(strokes);
+            strokes = UndoStack.top();
+            UndoStack.pop();
+        }
+    }
+
+    void redo() {
+        if (!redoStack.empty()) {
+            UndoStack.push(strokes);
+            strokes = redoStack.top();
+            redoStack.pop();
+        }
+    }
+
     void init() {
         if (!glfwInit()) {
             std::cerr << "Failed to initialize GLFW" << std::endl;
@@ -76,9 +165,58 @@ public:
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
         io.ConfigDockingWithShift = false;
 
+       
+
         ImGui_ImplGlfw_InitForOpenGL(window, true);
         ImGui_ImplOpenGL3_Init("#version 330");
-        ImGui::StyleColorsDark();
+
+
+        ImGuiStyle& style = ImGui::GetStyle();
+        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+        {
+            style.WindowRounding = 0.0f;
+            style.AntiAliasedFill = true;
+            style.AntiAliasedLines = true;
+            style.AntiAliasedLinesUseTex = true;   style.WindowPadding = ImVec2(12, 12);
+            style.FramePadding = ImVec2(6, 6);
+            //style.P = ImVec2(12, 6);
+            style.ItemSpacing = ImVec2(6, 6);
+            style.ItemInnerSpacing = ImVec2(6, 6);
+            style.TouchExtraPadding = ImVec2(0, 0);
+            style.IndentSpacing = 25;
+            style.ScrollbarSize = 12;
+            style.GrabMinSize = 10;
+
+            // Borders
+            style.WindowBorderSize = 1;
+            style.ChildBorderSize = 1;
+            style.PopupBorderSize = 1;
+            style.FrameBorderSize = 1;
+            style.TabBorderSize = 1;
+
+            // Rounding
+            style.WindowRounding =    25;
+            style.ChildRounding =     25;
+            style.FrameRounding =     25;
+            style.PopupRounding =     25;
+            style.ScrollbarRounding = 25;
+            style.GrabRounding =      25;
+            style.TabRounding =       25;
+            //style.WindowMinSize.x = 10.0f;
+            // Alignment
+            style.WindowTitleAlign = ImVec2(0.5f, 0.5f);
+            style.WindowMenuButtonPosition = ImGuiDir_Right;
+            style.ColorButtonPosition = ImGuiDir_Right;
+            style.ButtonTextAlign = ImVec2(0.5f, 0.5f);
+            style.SelectableTextAlign = ImVec2(0.0f, 0.0f);
+
+            // Anti-aliasing
+            style.AntiAliasedLines = true;
+            style.AntiAliasedFill = true;
+            //style.Colors[ImGuiCol_WindowBg].w = 0.1f;
+        }
+
+        SetDarkThemeColors();
 
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
@@ -87,15 +225,16 @@ public:
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
-
+            //ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+            if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable) {
+                ImGui::DockSpaceOverViewport(ImGui::GetMainViewport(), ImGuiDockNodeFlags_PassthruCentralNode);
+            }
             // Canvas window
             if (showCanvas) {
                 if (ImGui::Begin("Canvas", &showCanvas)) {
                     ImVec2 windowPos = ImGui::GetWindowPos();
                     ImVec2 windowSize = ImGui::GetWindowSize();
                     ImVec2 contentRegion = ImGui::GetContentRegionAvail();
-
                     // Draw background
                     ImDrawList* drawList = ImGui::GetWindowDrawList();
                     drawList->AddRectFilled(
@@ -106,7 +245,6 @@ public:
 
                     // Handle input
                     if (ImGui::IsWindowHovered()) {
-                        // Handle zooming with mouse wheel
                         if (ImGui::GetIO().MouseWheel != 0.0f) {
                             zoom *= (1.0f + ImGui::GetIO().MouseWheel * 0.1f);
                             if (zoom < 0.1f) zoom = 0.1f;
@@ -115,12 +253,13 @@ public:
 
                         ImVec2 mousePos = ImGui::GetMousePos();
 
-                        // Middle mouse button for panning
-                        if (ImGui::IsMouseDown(2)) { // Middle mouse button
+                        if (ImGui::IsMouseDown(2)) {
                             if (!isDragging) {
                                 isDragging = true;
                                 lastMousePos = mousePos;
                             }
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+
                             offset.x += mousePos.x - lastMousePos.x;
                             offset.y += mousePos.y - lastMousePos.y;
                             lastMousePos = mousePos;
@@ -129,11 +268,11 @@ public:
                             isDragging = false;
                         }
 
-                        // Left mouse button for drawing
                         if (ImGui::IsMouseDown(0) && !isDragging) {
                             ImVec2 canvasPos = screenToCanvas(mousePos, windowPos);
 
                             if (!isDrawing) {
+                                saveState(); // Save state before starting new stroke
                                 strokes.push_back(Stroke());
                                 isDrawing = true;
                             }
@@ -142,13 +281,30 @@ public:
                                 canvasPos.x,
                                 canvasPos.y,
                                 currentColor,
-                                currentThickness / zoom  // Adjust thickness based on zoom
+                                currentThickness / zoom
                             };
                             strokes.back().points.push_back(newPoint);
                         }
                         else {
                             isDrawing = false;
                         }
+
+
+                        if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Backspace)))
+                        {
+                            if (ImGui::GetIO().KeyCtrl)
+                            {
+                                std::cout << "Redo Done pressed\n";
+                                redo();
+                            }
+                            else
+                            {
+                                std::cout << "Undo Done pressed\n";
+                                Undo();
+                            }
+                        }
+
+
                     }
 
                     // Draw all strokes
@@ -169,7 +325,7 @@ public:
                         }
                     }
 
-                    // Draw grid (optional visual reference)
+                    // Draw grid
                     const float gridSize = 50.0f * zoom;
                     const ImU32 gridColor = ImColor(0.8f, 0.8f, 0.8f, 0.2f);
                     for (float x = fmod(offset.x, gridSize); x < windowSize.x; x += gridSize) {
@@ -190,8 +346,20 @@ public:
                 ImGui::End();
             }
 
+            ImGui::SetNextWindowBgAlpha(0.35);
             // Tools window
             ImGui::Begin("Tools");
+
+            // Add Undo/redo buttons at the top
+            if (ImGui::Button("Undo") && !UndoStack.empty()) {
+                Undo();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Redo") && !redoStack.empty()) {
+                redo();
+            }
+
+            ImGui::Separator();
 
             ImGui::Text("Drawing Color");
             ImGui::ColorEdit3("##DrawingColor", currentColor.data());
@@ -212,6 +380,7 @@ public:
             }
 
             if (ImGui::Button("Clear Canvas")) {
+                saveState(); // Save state before clearing
                 strokes.clear();
             }
 
@@ -223,15 +392,18 @@ public:
             ImGui::Text("- Left Click: Draw");
             ImGui::Text("- Middle Click: Pan");
             ImGui::Text("- Mouse Wheel: Zoom");
+            ImGui::Text("- Backspace: Undo");
+            ImGui::Text("- Ctrl+Backspace: Redo");
 
             ImGui::End();
 
+            
             // Rendering
             ImGui::Render();
             int display_w, display_h;
             glfwGetFramebufferSize(window, &display_w, &display_h);
             glViewport(0, 0, display_w, display_h);
-            glClearColor(0.45f, 0.55f, 0.60f, 1.00f);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.00f);
             glClear(GL_COLOR_BUFFER_BIT);
             ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
