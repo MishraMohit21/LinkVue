@@ -77,3 +77,5 @@ LinkVue-Client/Debug/
 LinkVue/Debug/
 .vs/LinkVue/FileContentIndex
 .vs/LinkVue/v17
+*.sln
+LinkVue/vendor/spdlog
