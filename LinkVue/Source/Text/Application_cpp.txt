@@ -8,13 +8,12 @@
 #include <examples/imgui_impl_opengl3.h>
 #include <algorithm>
 
-
 Application::Application()
     : m_Window(nullptr)
     , m_NetworkingThreadRunning(false)
     , m_NetworkingInitialized(false)
     , m_ShowModeSelection(true)
-    , m_IsHost(true)
+    , m_SelectedMode(Networking::Mode::Host)
     , m_Port(5000)
 {
     std::memset(m_IP, 0, sizeof(m_IP));
@@ -24,23 +23,6 @@ Application::Application()
 Application::~Application()
 {
     cleanup();
-}
-
-void Application::handleNetworkMessage(const std::string& message) {
-    std::lock_guard<std::mutex> lock(m_MessageQueueMutex);
-    m_MessageQueue.push_back(message);
-    // Forward the message to whiteboard
-    m_Whiteboard.handleNetworkMessage(message);
-}
-
-void Application::handleClientConnection() {
-    std::cout << "Client connected to application" << std::endl;
-    // Add any specific client connection handling here
-}
-
-void Application::handleClientDisconnection() {
-    std::cout << "Client disconnected from application" << std::endl;
-    // Add any specific client disconnection handling here
 }
 
 void Application::cleanup()
@@ -69,138 +51,6 @@ void Application::stopNetworkingThread()
     std::lock_guard<std::mutex> lock(m_NetworkingMutex);
     m_Networking.reset();
 }
-
-void Application::startNetworkingThread()
-{
-    stopNetworkingThread();
-
-    m_NetworkingThread = std::thread([this]() {
-        try {
-            auto newNetworking = std::make_unique<NetworkManager>(m_Port);
-
-            // Set up callbacks
-            newNetworking->setOnMessageReceived([this](const std::string& msg) {
-                handleNetworkMessage(msg);
-                });
-
-            newNetworking->setOnClientConnected([this]() {
-                handleClientConnection();
-                });
-
-            newNetworking->setOnClientDisconnected([this]() {
-                handleClientDisconnection();
-                });
-
-            bool initialized = false;
-            if (m_IsHost) {
-                initialized = newNetworking->initializeHost();
-            }
-            else {
-                initialized = newNetworking->initializeClient(m_IP);
-            }
-
-            if (initialized) {
-                {
-                    std::lock_guard<std::mutex> lock(m_NetworkingMutex);
-                    m_Networking = std::move(newNetworking);
-                    m_NetworkingInitialized = true;
-                }
-                m_NetworkingThreadRunning = true;
-
-                // Start the network manager
-                m_Networking->start();
-
-                // Network message loop
-                while (m_NetworkingThreadRunning) {
-                    // Process any pending messages in the queue
-                    std::vector<std::string> messages;
-                    {
-                        std::lock_guard<std::mutex> lock(m_MessageQueueMutex);
-                        messages.swap(m_MessageQueue);
-                    }
-
-                    // Process messages
-                    for (const auto& msg : messages) {
-                        m_Whiteboard.handleNetworkMessage(msg);
-                    }
-
-                    std::this_thread::sleep_for(std::chrono::milliseconds(16));
-                }
-            }
-            else {
-                std::cerr << "Failed to initialize NetworkManager" << std::endl;
-            }
-        }
-        catch (const std::exception& e) {
-            std::cerr << "Networking thread error: " << e.what() << std::endl;
-        }
-
-        m_NetworkingThreadRunning = false;
-        m_NetworkingInitialized = false;
-        });
-}
-
-void Application::renderModeSelectionWindow() {
-    ImGui::Begin("Networking Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
-
-    ImGui::Text("Select Networking Mode:");
-
-    if (ImGui::RadioButton("Host", m_IsHost)) {
-        m_IsHost = true;
-    }
-    if (ImGui::RadioButton("Client", !m_IsHost)) {
-        m_IsHost = false;
-    }
-
-    ImGui::Separator();
-
-    if (!m_IsHost) {
-        ImGui::InputText("Server IP", m_IP, sizeof(m_IP));
-    }
-
-    ImGui::InputInt("Port", &m_Port);
-    m_Port = std::clamp(m_Port, 1024, 65535);
-
-    if (ImGui::Button("Start")) {
-        m_ShowModeSelection = false;
-        startNetworkingThread();
-    }
-
-    ImGui::End();
-}
-
-void Application::renderMainApplication() {
-    // Check if we have any network messages to process
-    std::vector<std::string> messages;
-    {
-        std::lock_guard<std::mutex> lock(m_MessageQueueMutex);
-        messages.swap(m_MessageQueue);
-    }
-
-    // Process any pending messages
-    for (const auto& msg : messages) {
-        m_Whiteboard.handleNetworkMessage(msg);
-    }
-
-    // Render whiteboard components
-    m_Whiteboard.renderCanvas();
-    m_Whiteboard.drawToolWindow();
-
-    // If you need to send whiteboard updates over the network
-    if (m_NetworkingInitialized && m_Networking) {
-        std::string update = m_Whiteboard.getUpdateData();
-        if (!update.empty()) {
-            if (m_IsHost) {
-                m_Networking->broadcastMessage(update);
-            }
-            else {
-                m_Networking->sendMessage(update);
-            }
-        }
-    }
-}
-
-// ... [Rest of the implementation remains the same, including init(), Run(), renderFrame(), and SetDarkThemeColors()]
 
 bool Application::init()
 {
@@ -275,6 +125,42 @@ void Application::Run() {
     cleanup();
 }
 
+void Application::startNetworkingThread()
+{
+   
+    stopNetworkingThread();
+
+    m_NetworkingThread = std::thread([this]() {
+        try {
+            auto newNetworking = std::make_unique<Networking>(m_SelectedMode, m_Port, m_IP);
+            if (newNetworking->Initialize()) {
+                {
+                    std::lock_guard<std::mutex> lock(m_NetworkingMutex);
+                    m_Networking = std::move(newNetworking);
+                    m_NetworkingInitialized = true;
+                }
+                m_NetworkingThreadRunning = true;
+
+                // Network message loop
+                while (m_NetworkingThreadRunning) {
+                    m_Networking->Run(); // Replace Run() with Update()
+                    std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 fps
+                }
+            }
+            else {
+                std::cerr << "Failed to initialize Networking" << std::endl;
+            }
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Networking thread error: " << e.what() << std::endl;
+        }
+
+        m_NetworkingThreadRunning = false;
+        m_NetworkingInitialized = false;
+        });
+
+}
+
 
 void Application::renderFrame() {
     ImGui_ImplOpenGL3_NewFrame();
@@ -304,6 +190,46 @@ void Application::renderFrame() {
 
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     glfwSwapBuffers(m_Window);
+}
+
+void Application::renderModeSelectionWindow() {
+    ImGui::Begin("Networking Setup", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
+
+    ImGui::Text("Select Networking Mode:");
+    bool isHost = (m_SelectedMode == Networking::Mode::Host);
+    bool isClient = (m_SelectedMode == Networking::Mode::Client);
+
+    if (ImGui::RadioButton("Host", isHost)) {
+        m_SelectedMode = Networking::Mode::Host;
+    }
+    if (ImGui::RadioButton("Client", isClient)) {
+        m_SelectedMode = Networking::Mode::Client;
+    }
+
+    ImGui::Separator();
+
+    if (m_SelectedMode == Networking::Mode::Client) {
+        ImGui::InputText("Server IP", m_IP, sizeof(m_IP));
+    }
+
+    ImGui::InputInt("Port", &m_Port);
+    m_Port = std::clamp(m_Port, 1024, 65535);
+
+    if (ImGui::Button("Start")) {
+        m_ShowModeSelection = false;
+        startNetworkingThread();
+    }
+
+    ImGui::End();
+}
+
+void Application::renderMainApplication() {
+    /*if (m_Networking) {
+        m_Networking->Run();
+    }*/
+
+    m_Whiteboard.renderCanvas();
+    m_Whiteboard.drawToolWindow();
 }
 
 

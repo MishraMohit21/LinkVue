@@ -1,41 +1,50 @@
-#pragma once
-
-#include <steam/steamnetworkingsockets.h>
 #include <string>
 #include <vector>
+#include <functional>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
 
-class Networking {
+class NetworkManager {
 public:
-    enum class Mode {
-        Host,
-        Client
-    };
+    NetworkManager(int port = 12345);
+    ~NetworkManager();
 
-    Networking(Mode mode, uint16_t port, const std::string& ip);
-    ~Networking();
+    // Initialize as host or client
+    bool initializeHost();
+    bool initializeClient(const std::string& hostAddress);
 
-    bool Initialize();
-    void Run();
-    /*void SendMessage(const std::string& message);*/
-    void Reinitialize(Mode mode, uint16_t port, const std::string& ip);
-    void PSendMessage(const std::string&);
+    // Send and receive messages
+    bool sendMessage(const std::string& message);
+    bool broadcastMessage(const std::string& message);
+
+    // Set callbacks
+    void setOnMessageReceived(std::function<void(const std::string&)> callback);
+    void setOnClientConnected(std::function<void()> callback);
+    void setOnClientDisconnected(std::function<void()> callback);
+
+    // Start and stop networking
+    void start();
+    void stop();
+
+    // Status checks
+    bool isRunning() const;
+    bool isHost() const;
 
 private:
-    Mode m_Mode;
-    uint16_t m_Port;
-    std::string m_IP;
-    ISteamNetworkingSockets* m_NetworkInterface = nullptr;
-    HSteamListenSocket m_ListenSocket = k_HSteamListenSocket_Invalid;
-    HSteamNetPollGroup m_PollGroup = k_HSteamNetPollGroup_Invalid;
-    HSteamNetConnection m_Connection = k_HSteamNetConnection_Invalid;
+    static const int BUFFER_SIZE = 512;
 
-    std::vector<HSteamNetConnection> m_Connections;
+    void handleClient(SOCKET clientSocket);
+    void clientListenerThread();
+    void cleanup();
 
-    void PollIncomingMessages();
-    void HandleMessage(ISteamNetworkingMessage* msg);
-    uint32_t ConvertIPAddressToUint32(const std::string& ip);
+    SOCKET listenSocket;
+    std::vector<SOCKET> clientSockets;
+    bool running;
+    bool hostMode;
+    int port;
 
-    void Cleanup();
+    std::function<void(const std::string&)> onMessageReceived;
+    std::function<void()> onClientConnected;
+    std::function<void()> onClientDisconnected;
 };
-
-

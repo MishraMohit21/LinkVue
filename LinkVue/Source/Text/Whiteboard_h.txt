@@ -54,10 +54,6 @@ public:
     void renderCanvas();
     void drawToolWindow();
 
-    void handleNetworkMessage(const std::string& message);
-
-    // Get data that needs to be sent over network
-    std::string getUpdateData();
 
     //Getters and Setters for the Networking class
     std::vector<Stroke> getStrokes() const { return m_Strokes; }

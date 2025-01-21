@@ -1,130 +1,165 @@
 #include "Networking.h"
 #include <iostream>
-#include <sstream>
-#include <vector>
-//#include <arpa/inet.h> // For htonl and htons (or use Winsock on Windows)
-#include <WinSock2.h>
-#include <ws2tcpip.h>
+#include <thread>
 
-#pragma comment(lib, "ws2_32.lib")
-
-Networking::Networking(Mode mode, uint16_t port, const std::string& ip)
-    : m_Mode(mode), m_Port(port), m_IP(ip) {
+NetworkManager::NetworkManager(int port)
+    : port(port), running(false), hostMode(false),
+    listenSocket(INVALID_SOCKET) {
+    WSADATA wsaData;
+    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        throw std::runtime_error("WSAStartup failed");
+    }
 }
 
-Networking::~Networking() {
-    Cleanup();
+NetworkManager::~NetworkManager() {
+    stop();
+    WSACleanup();
 }
 
-bool Networking::Initialize() {
-    SteamDatagramErrMsg errMsg;
-    if (!GameNetworkingSockets_Init(nullptr, errMsg)) {
-        std::cerr << "GameNetworkingSockets_Init failed: " << errMsg << std::endl;
+bool NetworkManager::initializeHost() {
+    hostMode = true;
+    struct sockaddr_in serverAddr = {};
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(port);
+
+    listenSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenSocket == INVALID_SOCKET) {
         return false;
     }
 
-    m_NetworkInterface = SteamNetworkingSockets();
-
-    if (m_Mode == Mode::Host) {
-        SteamNetworkingIPAddr addr;
-        addr.SetIPv4(INADDR_ANY, htons(m_Port)); // INADDR_ANY for host
-        m_ListenSocket = m_NetworkInterface->CreateListenSocketIP(addr, 0, nullptr);
-        m_PollGroup = m_NetworkInterface->CreatePollGroup();
-
-        if (m_ListenSocket == k_HSteamListenSocket_Invalid || m_PollGroup == k_HSteamNetPollGroup_Invalid) {
-            std::cerr << "Failed to initialize host." << std::endl;
-            return false;
-        }
-
-        std::cout << "Host initialized on port " << m_Port << std::endl;
+    if (bind(listenSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+        closesocket(listenSocket);
+        return false;
     }
-    else {
-        SteamNetworkingIPAddr addr;
-        addr.SetIPv4(ConvertIPAddressToUint32(m_IP), htons(m_Port));
-        m_Connection = m_NetworkInterface->ConnectByIPAddress(addr, 0, nullptr);
 
-        if (m_Connection == k_HSteamNetConnection_Invalid) {
-            std::cerr << "Failed to initialize client." << std::endl;
-            return false;
-        }
-
-        std::cout << "Client initialized and connecting to " << m_IP << " on port " << m_Port << std::endl;
+    if (listen(listenSocket, SOMAXCONN) == SOCKET_ERROR) {
+        closesocket(listenSocket);
+        return false;
     }
 
     return true;
 }
 
-void Networking::Reinitialize(Mode mode, uint16_t port, const std::string& ip) {
-    Cleanup(); // Clean up the existing connection
-    m_Mode = mode;
-    m_Port = port;
-    m_IP = ip;
-    if (!Initialize()) {
-        std::cerr << "Failed to reinitialize networking." << std::endl;
+bool NetworkManager::initializeClient(const std::string& hostAddress) {
+    hostMode = false;
+    struct sockaddr_in serverAddr = {};
+    serverAddr.sin_family = AF_INET;
+    inet_pton(AF_INET, hostAddress.c_str(), &serverAddr.sin_addr);
+    serverAddr.sin_port = htons(port);
+
+    listenSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenSocket == INVALID_SOCKET) {
+        return false;
     }
+
+    if (connect(listenSocket, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+        closesocket(listenSocket);
+        return false;
+    }
+
+    clientSockets.push_back(listenSocket);
+    return true;
 }
 
-void Networking::Run() {
-    while (true) {
-        PollIncomingMessages();
-    }
-}
-
-void Networking::PSendMessage(const std::string& message)
-{
-    if (m_Mode == Mode::Host) {
-        for (auto conn : m_Connections) {
-            m_NetworkInterface->SendMessageToConnection(conn, message.data(), message.size(), k_nSteamNetworkingSend_Reliable, nullptr);
-        }
-    }
-    else if (m_Connection != k_HSteamNetConnection_Invalid) {
-        m_NetworkInterface->SendMessageToConnection(m_Connection, message.data(), message.size(), k_nSteamNetworkingSend_Reliable, nullptr);
-    }
-}
-
-
-void Networking::PollIncomingMessages() {
-    ISteamNetworkingMessage* msgs[16];
-    int msgCount = m_NetworkInterface->ReceiveMessagesOnPollGroup(m_PollGroup, msgs, 16);
-
-    for (int i = 0; i < msgCount; ++i) {
-        HandleMessage(msgs[i]);
-        msgs[i]->Release();
-    }
-}
-
-void Networking::HandleMessage(ISteamNetworkingMessage* msg) {
-    std::string receivedMsg(static_cast<const char*>(msg->m_pData), msg->m_cbSize);
-    std::cout << "Received: " << receivedMsg << std::endl;
-    
-    if (m_Mode == Mode::Host) {
-        PSendMessage(receivedMsg); // Broadcast message to all clients
-    }
-}
-
-void Networking::Cleanup() {
-    if (m_NetworkInterface) {
-        if (m_Mode == Mode::Host) {
-            if (m_ListenSocket != k_HSteamListenSocket_Invalid) {
-                m_NetworkInterface->CloseListenSocket(m_ListenSocket);
-            }
-            if (m_PollGroup != k_HSteamNetPollGroup_Invalid) {
-                m_NetworkInterface->DestroyPollGroup(m_PollGroup);
+void NetworkManager::handleClient(SOCKET clientSocket) {
+    char buffer[BUFFER_SIZE];
+    while (running) {
+        int bytesReceived = recv(clientSocket, buffer, BUFFER_SIZE, 0);
+        if (bytesReceived > 0) {
+            buffer[bytesReceived] = '\0';
+            if (onMessageReceived) {
+                onMessageReceived(std::string(buffer));
             }
         }
-        else if (m_Connection != k_HSteamNetConnection_Invalid) {
-            m_NetworkInterface->CloseConnection(m_Connection, 0, nullptr, false);
+        else {
+            if (onClientDisconnected) {
+                onClientDisconnected();
+            }
+            break;
         }
+    }
+    closesocket(clientSocket);
+}
 
-        GameNetworkingSockets_Kill();
+void NetworkManager::clientListenerThread() {
+    while (running) {
+        if (hostMode) {
+            SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
+            if (clientSocket != INVALID_SOCKET) {
+                clientSockets.push_back(clientSocket);
+                if (onClientConnected) {
+                    onClientConnected();
+                }
+                std::thread(&NetworkManager::handleClient, this, clientSocket).detach();
+            }
+        }
+        else {
+            handleClient(listenSocket);
+            break;
+        }
     }
 }
 
-uint32_t Networking::ConvertIPAddressToUint32(const std::string& ip) {
-    in_addr addr;
-    if (inet_pton(AF_INET, ip.c_str(), &addr) != 1) {
-        std::cerr << "Invalid IP address format: " << ip << std::endl;
-        return INADDR_NONE;
+bool NetworkManager::sendMessage(const std::string& message) {
+    if (!running || clientSockets.empty()) {
+        return false;
     }
-    return ntohl(addr.s_addr);
+    return send(clientSockets[0], message.c_str(), static_cast<int>(message.size()), 0) != SOCKET_ERROR;
+}
+
+bool NetworkManager::broadcastMessage(const std::string& message) {
+    if (!running || !hostMode) {
+        return false;
+    }
+    bool success = true;
+    for (auto& socket : clientSockets) {
+        if (send(socket, message.c_str(), static_cast<int>(message.size()), 0) == SOCKET_ERROR) {
+            success = false;
+        }
+    }
+    return success;
+}
+
+void NetworkManager::setOnMessageReceived(std::function<void(const std::string&)> callback) {
+    onMessageReceived = callback;
+}
+
+void NetworkManager::setOnClientConnected(std::function<void()> callback) {
+    onClientConnected = callback;
+}
+
+void NetworkManager::setOnClientDisconnected(std::function<void()> callback) {
+    onClientDisconnected = callback;
+}
+
+void NetworkManager::start() {
+    if (!running) {
+        running = true;
+        std::thread(&NetworkManager::clientListenerThread, this).detach();
+    }
+}
+
+void NetworkManager::stop() {
+    running = false;
+    cleanup();
+}
+
+void NetworkManager::cleanup() {
+    for (auto& socket : clientSockets) {
+        closesocket(socket);
+    }
+    clientSockets.clear();
+    if (listenSocket != INVALID_SOCKET) {
+        closesocket(listenSocket);
+        listenSocket = INVALID_SOCKET;
+    }
+}
+
+bool NetworkManager::isRunning() const {
+    return running;
+}
+
+bool NetworkManager::isHost() const {
+    return hostMode;
 }
