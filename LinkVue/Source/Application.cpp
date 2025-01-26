@@ -200,7 +200,6 @@ void Application::renderMainApplication() {
     }
 }
 
-// ... [Rest of the implementation remains the same, including init(), Run(), renderFrame(), and SetDarkThemeColors()]
 
 bool Application::init()
 {

@@ -1,4 +1,145 @@
+//[Header]
+// 
+#pragma once
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <ImGui.h>
+
+
+#include <vector>
+#include <stack>
+#include <array>
+#include <iostream>
+
+#include <yaml-cpp/yaml.h>
+
+struct Point {
+    float x, y;
+    std::array<float, 3> color;
+    float thickness;
+};
+
+struct Stroke {
+    std::vector<Point> points;
+};
+
+class Whiteboard {
+private:
+    std::vector<Stroke> m_Strokes;
+    std::stack<std::vector<Stroke>> m_UndoStack;
+    std::stack<std::vector<Stroke>> m_RedoStack;
+    std::array<float, 3> m_CurrentColor = { 0.0f, 0.0f, 0.0f }; // Drawing color
+    std::array<float, 3> m_CanvasColor = { 1.0f, 1.0f, 1.0f };  // Canvas background color
+    float m_CurrentThickness = 2.0f;
+    bool isDrawing = false;
+    bool showCanvas = true;
+    bool isDragging = false;
+    ImVec2 m_Offset = ImVec2(0.0f, 0.0f); // Canvas offset for panning
+    ImVec2 m_LastMousePos = ImVec2(0.0f, 0.0f); // Last mouse position for panning
+    float m_Zoom = 1.0f; // Zoom level
+
+    // Private helper functions
+    void saveState();
+    ImVec2 screenToCanvas(const ImVec2& screenPos, const ImVec2& windowPos);
+    ImVec2 canvasToScreen(const ImVec2& canvasPos, const ImVec2& windowPos);
+
+public:
+
+    Whiteboard() = default;
+    ~Whiteboard() = default;
+
+
+    // Public member functions
+    void Undo();
+    void redo();
+    void init();
+
+    void renderCanvas();
+    void drawToolWindow();
+
+    void handleNetworkMessage(const std::string& message);
+
+    // Get data that needs to be sent over network
+    std::string getUpdateData(); 
+
+    //Getters and Setters for the Networking class
+    std::vector<Stroke> getStrokes() const { return m_Strokes; }
+    std::stack<std::vector<Stroke>> getUndoStack() const { return m_UndoStack; }
+    std::stack<std::vector<Stroke>> getRedoStack() const { return m_RedoStack; }
+
+    // Getter and Setter declarations
+
+    float getZoom() const { return m_Zoom; }
+    void setZoom(float newZoom) { m_Zoom = newZoom; }
+
+    const std::array<float, 3>& getCurrentColor() const { return m_CurrentColor; }
+    void setCurrentColor(const std::array<float, 3>& newColor) { m_CurrentColor = newColor; }
+
+    const std::array<float, 3>& getCanvasColor() const { return m_CanvasColor; }
+    void setCanvasColor(const std::array<float, 3>& newColor) { m_CanvasColor = newColor; }
+
+    float getCurrentThickness() const { return m_CurrentThickness; }
+    void setCurrentThickness(float newThickness) { m_CurrentThickness = newThickness; }
+
+    YAML::Node serialize() const;
+    void deserialize(const YAML::Node& node);
+
+};
+
+
+
+//[Implmentation]
+
 #include "Whiteboard.h"
+
+
+namespace YAML {
+    template<>
+    struct convert<Point> {
+        static Node encode(const Point& point) {
+            Node node;
+            node["x"] = point.x;
+            node["y"] = point.y;
+            node["color"] = point.color;
+            node["thickness"] = point.thickness;
+            return node;
+        }
+
+        static bool decode(const Node& node, Point& point) {
+            if (!node.IsMap() || !node["x"] || !node["y"] || !node["color"] || !node["thickness"])
+                return false;
+
+            point.x = node["x"].as<float>();
+            point.y = node["y"].as<float>();
+            point.color = node["color"].as<std::array<float, 3>>();
+            point.thickness = node["thickness"].as<float>();
+            return true;
+        }
+    };
+
+    template<>
+    struct convert<Stroke> {
+        static Node encode(const Stroke& stroke) {
+            Node node;
+            for (const auto& point : stroke.points) {
+                node.push_back(point);
+            }
+            return node;
+        }
+
+        static bool decode(const Node& node, Stroke& stroke) {
+            if (!node.IsSequence())
+                return false;
+
+            for (const auto& item : node) {
+                stroke.points.push_back(item.as<Point>());
+            }
+            return true;
+        }
+    };
+}
+
+
 
 void Whiteboard::saveState()
 {
@@ -222,3 +363,100 @@ void Whiteboard::drawToolWindow()
 
     ImGui::End();
 }
+
+void Whiteboard::handleNetworkMessage(const std::string& message)
+{
+    deserialize(message);
+}
+
+std::string Whiteboard::getUpdateData()
+{
+    return serialize();
+}
+
+std::string Whiteboard::serialize() const 
+{
+    YAML::Node node;
+
+    // Serialize strokes
+    for (const auto& stroke : m_Strokes) {
+        node["strokes"].push_back(stroke);
+    }
+
+    // Serialize undo stack
+    auto temp = m_UndoStack;
+    while (!temp.empty())
+    {
+        const auto stackItem = temp.top();
+        YAML::Node stackNode;
+        for (const auto& stroke : stackItem) {
+            stackNode.push_back(stroke);
+        }
+        node["undoStack"].push_back(stackNode);
+        temp.pop();
+    }
+
+    // Serialize redo stack
+    temp = m_RedoStack;
+    while (!temp.empty())
+    {
+        const auto stackItem = temp.top();
+        YAML::Node stackNode;
+        for (const auto& stroke : stackItem) {
+            stackNode.push_back(stroke);
+        }
+        node["redoStack"].push_back(stackNode);
+        temp.pop();
+    }
+
+    // Serialize other properties
+    node["currentColor"] = m_CurrentColor;
+    node["canvasColor"] = m_CanvasColor;
+    node["currentThickness"] = m_CurrentThickness;
+    node["zoom"] = m_Zoom;
+
+    return YAML::Dump(node);
+}
+
+void Whiteboard::deserialize(const std::string& nodeString)
+{
+    YAML::Node node = YAML::Load(nodeString);
+    // Deserialize strokes
+    if (node["strokes"]) {
+        m_Strokes.clear();
+        for (const auto& strokeNode : node["strokes"]) {
+            m_Strokes.push_back(strokeNode.as<Stroke>());
+        }
+    }
+
+    // Deserialize undo stack
+    if (node["undoStack"]) {
+        while (!m_UndoStack.empty()) m_UndoStack.pop(); // Clear current stack
+        for (const auto& stackNode : node["undoStack"]) {
+            std::vector<Stroke> stackItem;
+            for (const auto& strokeNode : stackNode) {
+                stackItem.push_back(strokeNode.as<Stroke>());
+            }
+            m_UndoStack.push(stackItem);
+        }
+    }
+
+    // Deserialize redo stack
+    if (node["redoStack"]) {
+        while (!m_RedoStack.empty()) m_RedoStack.pop(); // Clear current stack
+        for (const auto& stackNode : node["redoStack"]) {
+            std::vector<Stroke> stackItem;
+            for (const auto& strokeNode : stackNode) {
+                stackItem.push_back(strokeNode.as<Stroke>());
+            }
+            m_RedoStack.push(stackItem);
+        }
+    }
+
+    // Deserialize other properties
+    if (node["currentColor"]) m_CurrentColor = node["currentColor"].as<std::array<float, 3>>();
+    if (node["canvasColor"]) m_CanvasColor = node["canvasColor"].as<std::array<float, 3>>();
+    if (node["currentThickness"]) m_CurrentThickness = node["currentThickness"].as<float>();
+    if (node["zoom"]) m_Zoom = node["zoom"].as<float>();
+}
+

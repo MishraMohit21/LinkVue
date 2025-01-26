@@ -22,12 +22,13 @@ IncludeDir["GLFW"] = "LinkVue/vendor/GLFW/include"
 IncludeDir["Glad"] = "LinkVue/vendor/Glad/include"
 IncludeDir["yaml_cpp"] = "vendor/yaml-cpp/include"
 IncludeDir["ImGui"] = "LinkVue/vendor/imgui"
-IncludeDir["GameNetworkingSockets"] = "LinkVue/vendor/GameNetworkingSockets/include"
+-- IncludeDir["GameNetworkingSockets"] = "LinkVue/vendor/GameNetworkingSockets/include"
 
 group "Dependencies"
 	include "LinkVue/vendor/GLFW"
 	include "LinkVue/vendor/Glad"
 	include "LinkVue/vendor/imgui"
+	include "LinkVue/vendor/yaml-cpp"
 group ""
 
 
@@ -55,12 +56,13 @@ project "LinkVue"
 		"$(SolutionDir)%{IncludeDir.GLFW}",
 		"$(SolutionDir)%{IncludeDir.Glad}",
 		"$(SolutionDir)%{IncludeDir.ImGui}",
-		"$(SolutionDir)%{IncludeDir.GameNetworkingSockets}"
+		-- "$(SolutionDir)%{IncludeDir.GameNetworkingSockets}"
 	}
 
 	links 
 	{
 		"GLFW",
+		-- "yaml_cpp",
 		"Glad",
 		"ImGui",
 	}
@@ -75,13 +77,13 @@ project "LinkVue"
 	filter { "system:windows", "configurations:Debug" }	
 		links
 		{
-			"$(ProjectDir)vendor/GameNetworkingSockets/bin/Windows/Debug/GameNetworkingSockets.lib"
+			"$(ProjectDir)vendor/yaml-cpp/bin/Debug-windows-x86_64/yaml-cpp/yaml-cpp.lib"
 		}
   
 	filter { "system:windows", "configurations:Release or configurations:Dist" }	
 		links
 		{
-			"$(ProjectDir)vendor/GameNetworkingSockets/bin/Windows/Release/GameNetworkingSockets.lib"
+			"$(ProjectDir)vendor/yaml-cpp/bin/Release-windows-x86_64/yaml-cpp/yaml-cpp.lib"
 		}
 
 	filter "configurations:Debug"

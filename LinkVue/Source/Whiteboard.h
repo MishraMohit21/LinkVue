@@ -9,6 +9,7 @@
 #include <array>
 #include <iostream>
 
+#include <yaml-cpp/yaml.h>
 
 struct Point {
     float x, y;
@@ -39,6 +40,8 @@ private:
     void saveState();
     ImVec2 screenToCanvas(const ImVec2& screenPos, const ImVec2& windowPos);
     ImVec2 canvasToScreen(const ImVec2& canvasPos, const ImVec2& windowPos);
+    std::string serialize() const;
+    void deserialize(const std::string& node);
 
 public:
 
@@ -57,7 +60,7 @@ public:
     void handleNetworkMessage(const std::string& message);
 
     // Get data that needs to be sent over network
-    std::string getUpdateData();
+    std::string getUpdateData(); 
 
     //Getters and Setters for the Networking class
     std::vector<Stroke> getStrokes() const { return m_Strokes; }
@@ -80,4 +83,5 @@ public:
 
 
 };
+
 
